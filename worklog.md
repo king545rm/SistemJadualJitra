@@ -152,3 +152,33 @@ Stage Summary:
 - All PRD functional requirements F1-F10 implemented + security (RBAC, rate limiting, lockout, audit, XSS sanitization, password policy).
 - Glassmorphism UI with dark/light mode, mobile-responsive, sticky footer.
 - Login: timbalan@adtecjitra.gov.my / AstS@2026 (and 6 other demo accounts).
+
+---
+Task ID: SUPABASE-MIGRATION
+Agent: Main (Z.ai Code)
+Task: Migrate database from SQLite to Supabase PostgreSQL
+
+Work Log:
+- Updated prisma/schema.prisma: provider sqlite → postgresql
+- Discovered port 5432 (direct connection) is BLOCKED in sandbox; port 6543 (pooler) is reachable
+- Wrote a Bun script to probe all Supabase pooler regions with proper PostgreSQL startup packets
+- Identified correct region: ap-northeast-1 (Tokyo) — server responded with SCRAM-SHA-256 auth
+- Generated SQL migration via `prisma migrate diff --from-empty --to-schema-datamodel`
+- Created scripts/migrate-supabase.ts using `pg` package to execute 45 SQL statements (11 tables + 34 indexes/constraints) directly — bypassed Prisma's prepared statement issue with PgBouncer
+- Rewrote seed script (prisma/seed-supabase.ts) with createMany batch inserts + pre-generated IDs — reduced ~900 individual queries to ~10 batch queries, completing in seconds instead of timing out
+- Seeded: 7 kursus, 28 kumpulan, 182 modul, 35 pensyarah (4 cross-course), 12 bilik, 277 slot (with intentional clashes), 2 permohonan, 7 users
+- Created start-dev.sh wrapper to export correct DATABASE_URL (overrides stale shell env var)
+- Updated .env with Supabase pooler URL + pgbouncer=true&connection_limit=1 params
+- Verified end-to-end: login, dashboard, all 7 courses render from Supabase — 0 errors
+
+Connection details:
+- Host: aws-0-ap-northeast-1.pooler.supabase.com:6543 (transaction pooler)
+- User: postgres.naojxsvfrnxbodpznbzq
+- Database: postgres (schema: public)
+- SSL: required (rejectUnauthorized: false for pooler)
+
+Stage Summary:
+- Database fully migrated to Supabase PostgreSQL (project: naojxsvfrnxbodpznbzq)
+- All 11 tables created with proper indexes, constraints, and foreign keys
+- All dummy data seeded and verified
+- App running against Supabase — login + dashboard confirmed working
