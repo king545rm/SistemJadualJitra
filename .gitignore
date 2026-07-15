@@ -70,3 +70,4 @@ upload/
 # scripts (local migration helpers — not needed in deployment)
 /scripts/
 start-dev.sh
+.env*
