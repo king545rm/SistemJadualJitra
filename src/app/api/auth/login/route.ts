@@ -79,12 +79,10 @@ export async function POST(request: NextRequest) {
     email: user.email,
     name: user.name,
     role: user.role,
-    kursusId: user.kursusId,
-    pensyarahId: user.pensyarahId,
   })
 
   await auditLog({
-    session: { id: user.id, email: user.email, name: user.name, role: user.role, kursusId: user.kursusId, pensyarahId: user.pensyarahId },
+    session: { id: user.id, email: user.email, name: user.name, role: user.role },
     action: 'LOGIN',
     entity: 'USER',
     entityId: user.id,
@@ -97,8 +95,6 @@ export async function POST(request: NextRequest) {
       email: user.email,
       name: user.name,
       role: user.role,
-      kursusId: user.kursusId,
-      pensyarahId: user.pensyarahId,
     },
   })
 }
