@@ -1,130 +1,77 @@
 'use client'
 
 import * as React from 'react'
-import {
-  ScrollText,
-  Filter,
-  Loader2,
-  Inbox,
-  Eye,
-  Shield,
-  Activity,
-} from 'lucide-react'
-import { toast } from 'sonner'
-
 import { api } from '@/lib/api-client'
+import type { AuditLogEntry, Role } from '@/lib/types'
+import { ROLE_LABELS } from '@/lib/types'
 import {
-  ROLE_LABELS,
-  type SessionUser,
-  type AuditLogEntry,
-  type Role,
-} from '@/lib/types'
-
+  ScrollText, Filter, Inbox, Lock, ShieldAlert, X, User as UserIcon,
+} from 'lucide-react'
 import {
-  PageHeader,
-  StatCard,
-  LoadingState,
-  EmptyState,
-  Badge,
-  GlassPanel,
-  useApi,
+  PageHeader, LoadingState, EmptyState, Badge, GlassPanel, useApi,
+  type SectionProps,
 } from '@/components/sections/shared'
-
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
-interface AuditResponse {
-  logs: AuditLogEntry[]
-  total: number
-}
-
 const ENTITY_OPTIONS = [
-  'KURSUS',
-  'PENSYARAH',
-  'MODUL',
-  'SLOT_JADUAL',
-  'PERMOHONAN',
-  'USER',
-  'BILIK',
-  'KUMPULAN',
-] as const
+  { value: 'PESANAN', label: 'Pesanan' },
+  { value: 'MENU', label: 'Menu' },
+  { value: 'PELANGGAN', label: 'Pelanggan' },
+  { value: 'USER', label: 'Pengguna' },
+]
 
 const ACTION_OPTIONS = [
-  'CREATE',
-  'UPDATE',
-  'DELETE',
-  'LOGIN',
-  'LOGOUT',
-  'LOGIN_FAILED',
-  'APPROVE',
-  'REJECT',
-  'GENERATE',
-  'CLASH_DETECTED',
-] as const
+  { value: 'CREATE', label: 'Cipta' },
+  { value: 'UPDATE', label: 'Kemas Kini' },
+  { value: 'DELETE', label: 'Padam' },
+  { value: 'STATUS_UPDATE', label: 'Kemas Kini Status' },
+  { value: 'CANCEL', label: 'Batal' },
+  { value: 'LOGIN', label: 'Log Masuk' },
+  { value: 'LOGOUT', label: 'Log Keluar' },
+  { value: 'LOGIN_FAILED', label: 'Log Masuk Gagal' },
+]
 
-function actionVariant(a: string): 'default' | 'success' | 'warning' | 'danger' | 'info' {
-  switch (a) {
-    case 'CREATE':
-    case 'APPROVE':
-      return 'success'
-    case 'UPDATE':
-    case 'GENERATE':
-      return 'info'
-    case 'DELETE':
-    case 'REJECT':
-    case 'LOGIN_FAILED':
-    case 'CLASH_DETECTED':
-      return 'danger'
-    case 'LOGIN':
-    case 'LOGOUT':
-      return 'default'
-    default:
-      return 'default'
+function actionVariant(action: string): 'success' | 'warning' | 'danger' | 'info' | 'default' {
+  switch (action) {
+    case 'CREATE': return 'success'
+    case 'UPDATE': case 'STATUS_UPDATE': return 'info'
+    case 'DELETE': case 'CANCEL': return 'danger'
+    case 'LOGIN': case 'LOGOUT': return 'default'
+    case 'LOGIN_FAILED': return 'warning'
+    default: return 'default'
   }
 }
 
-function formatTimestamp(iso: string) {
+function entityLabel(entity: string): string {
+  return ENTITY_OPTIONS.find((e) => e.value === entity)?.label ?? entity
+}
+
+function actionLabel(action: string): string {
+  return ACTION_OPTIONS.find((a) => a.value === action)?.label ?? action
+}
+
+function formatTimestamp(ts: string) {
   try {
-    return new Date(iso).toLocaleString('ms-MY', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
+    return new Date(ts).toLocaleString('ms-MY', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
     })
-  } catch {
-    return iso
-  }
+  } catch { return ts }
 }
 
-function prettyJson(s?: string | null) {
-  if (!s) return '(tiada data)'
+function prettyJson(s?: string | null): string {
+  if (!s) return '—'
   try {
     return JSON.stringify(JSON.parse(s), null, 2)
   } catch {
@@ -132,258 +79,270 @@ function prettyJson(s?: string | null) {
   }
 }
 
-export function AuditSection({ user }: { user: SessionUser }) {
-  const [entity, setEntity] = React.useState<string>('all')
-  const [action, setAction] = React.useState<string>('all')
+export function AuditSection({ user }: SectionProps) {
+  const canView = user.role === 'PEMILIK'
+  const [entity, setEntity] = React.useState<string>('SEMUA')
+  const [action, setAction] = React.useState<string>('SEMUA')
   const [limit, setLimit] = React.useState<string>('100')
-  const [selected, setSelected] = React.useState<AuditLogEntry | null>(null)
+  const [selectedLog, setSelectedLog] = React.useState<AuditLogEntry | null>(null)
 
-  const url = React.useMemo(() => {
+  const query = React.useMemo(() => {
     const params = new URLSearchParams()
-    if (entity !== 'all') params.set('entity', entity)
-    if (action !== 'all') params.set('action', action)
+    if (entity !== 'SEMUA') params.set('entity', entity)
+    if (action !== 'SEMUA') params.set('action', action)
     params.set('limit', limit)
-    return `/api/audit?${params.toString()}`
+    return params.toString()
   }, [entity, action, limit])
 
-  const { data, loading } = useApi<AuditResponse>(() => api.get(url), [url])
+  const { data, loading, error, refresh } = useApi<{ logs: AuditLogEntry[]; total: number }>(
+    () => api.get(`/api/audit?${query}`),
+    [query],
+  )
+
+  if (!canView) {
+    return (
+      <EmptyState
+        title="Akses Ditolak"
+        description="Anda tidak mempunyai kebenaran untuk melihat log audit."
+        icon={Lock}
+      />
+    )
+  }
 
   const logs = data?.logs ?? []
   const total = data?.total ?? 0
 
-  // Compute quick stats
-  const stats = React.useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayCount = logs.filter((l) => new Date(l.timestamp) >= today).length
-    const createCount = logs.filter((l) => l.action === 'CREATE').length
-    const deleteCount = logs.filter((l) => l.action === 'DELETE').length
-    return { today: todayCount, create: createCount, delete: deleteCount }
-  }, [logs])
-
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
-        title="Log Audit Perubahan"
-        description="Jejak governans — siapa, bila, apa perubahan."
+        title="Log Audit"
+        description="Jejak semua perubahan untuk governans"
         icon={ScrollText}
+        actions={
+          <Button variant="outline" onClick={refresh} className="gap-2">
+            <Filter className="h-4 w-4" /> Muat Semula
+          </Button>
+        }
       />
 
-      {/* Stats */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Jumlah Log" value={total} icon={ScrollText} />
-        <StatCard label="Hari Ini" value={stats.today} icon={Activity} variant="info" />
-        <StatCard label="Cipta" value={stats.create} icon={Eye} variant="success" />
-        <StatCard label="Padam" value={stats.delete} icon={Shield} variant="danger" />
-      </div>
-
       {/* Filters */}
-      <GlassPanel>
+      <GlassPanel className="mb-5">
         <CardContent className="p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <p className="text-sm font-medium">Penapis</p>
-          </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <Label htmlFor="entity" className="text-xs">Entiti</Label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Entiti</label>
               <Select value={entity} onValueChange={setEntity}>
-                <SelectTrigger id="entity" className="w-full mt-1">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Semua Entiti</SelectItem>
+                  <SelectItem value="SEMUA">Semua Entiti</SelectItem>
                   {ENTITY_OPTIONS.map((e) => (
-                    <SelectItem key={e} value={e}>
-                      {e}
-                    </SelectItem>
+                    <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label htmlFor="action" className="text-xs">Aksi</Label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Aksi</label>
               <Select value={action} onValueChange={setAction}>
-                <SelectTrigger id="action" className="w-full mt-1">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Semua Aksi</SelectItem>
+                  <SelectItem value="SEMUA">Semua Aksi</SelectItem>
                   {ACTION_OPTIONS.map((a) => (
-                    <SelectItem key={a} value={a}>
-                      {a}
-                    </SelectItem>
+                    <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label htmlFor="limit" className="text-xs">Bilangan Maksimum</Label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Bilangan Catatan</label>
               <Select value={limit} onValueChange={setLimit}>
-                <SelectTrigger id="limit" className="w-full mt-1">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="50">50 rekod</SelectItem>
-                  <SelectItem value="100">100 rekod</SelectItem>
-                  <SelectItem value="200">200 rekod</SelectItem>
+                  <SelectItem value="50">50 terkini</SelectItem>
+                  <SelectItem value="100">100 terkini</SelectItem>
+                  <SelectItem value="250">250 terkini</SelectItem>
+                  <SelectItem value="500">500 terkini</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            Menunjukkan {logs.length} dari {total} jumlah log audit.
+          </p>
         </CardContent>
       </GlassPanel>
 
-      {/* Logs table */}
-      <GlassPanel>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-medium">Rekod Audit ({logs.length} dipaparkan)</p>
-            <Badge variant="info">{total} jumlah</Badge>
+      {error ? (
+        <EmptyState
+          title="Ralat memuatkan log audit"
+          description={error}
+          icon={ShieldAlert}
+          action={<Button variant="outline" onClick={refresh}>Cuba Lagi</Button>}
+        />
+      ) : loading ? (
+        <LoadingState label="Memuatkan log audit..." />
+      ) : logs.length === 0 ? (
+        <EmptyState
+          title="Tiada log audit dijumpai"
+          description="Cuba penapis lain atau tiada aktiviti direkodkan."
+          icon={Inbox}
+        />
+      ) : (
+        <>
+          {/* Desktop: Table */}
+          <div className="hidden md:block">
+            <GlassPanel>
+              <CardContent className="p-0">
+                <div className="max-h-[60vh] overflow-y-auto scrollbar-thin">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-background/80 backdrop-blur z-10">
+                      <TableRow>
+                        <TableHead>Tarikh & Masa</TableHead>
+                        <TableHead>Pengguna</TableHead>
+                        <TableHead>Aksi</TableHead>
+                        <TableHead>Entiti</TableHead>
+                        <TableHead>IP</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {logs.map((log) => (
+                        <TableRow
+                          key={log.id}
+                          onClick={() => setSelectedLog(log)}
+                          className="cursor-pointer hover:bg-primary/5"
+                        >
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {formatTimestamp(log.timestamp)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                                <UserIcon className="h-3.5 w-3.5" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{log.userName}</p>
+                                {log.userRole && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {ROLE_LABELS[log.userRole as Role] ?? log.userRole}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={actionVariant(log.action)}>
+                              {actionLabel(log.action)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm">{entityLabel(log.entity)}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground font-mono">
+                            {log.ipAddress ?? '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </GlassPanel>
           </div>
 
-          {loading ? (
-            <LoadingState label="Memuatkan log audit..." />
-          ) : logs.length === 0 ? (
-            <EmptyState
-              title="Tiada log dijumpai"
-              description="Tiada rekod audit untuk penapis ini."
-              icon={Inbox}
-            />
-          ) : (
-            <div className="overflow-x-auto scrollbar-thin">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-44">Tarikh & Masa</TableHead>
-                    <TableHead>Pengguna</TableHead>
-                    <TableHead className="w-28">Aksi</TableHead>
-                    <TableHead>Entiti</TableHead>
-                    <TableHead className="w-32">ID Entiti</TableHead>
-                    <TableHead className="w-32">IP</TableHead>
-                    <TableHead className="w-16 text-right">Butiran</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {logs.map((l) => (
-                    <TableRow
-                      key={l.id}
-                      className="cursor-pointer hover:bg-muted/40"
-                      onClick={() => setSelected(l)}
-                    >
-                      <TableCell className="text-xs text-muted-foreground font-mono">
-                        {formatTimestamp(l.timestamp)}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        <p className="font-medium">{l.userName || '—'}</p>
-                        {l.userRole && (
-                          <Badge variant="default" className="mt-0.5 text-[10px]">
-                            {ROLE_LABELS[l.userRole as Role] || l.userRole}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={actionVariant(l.action)}>{l.action}</Badge>
-                      </TableCell>
-                      <TableCell className="text-sm">{l.entity}</TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">
-                        {l.entityId ? (
-                          <span title={l.entityId}>
-                            {l.entityId.slice(0, 8)}…
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">
-                        {l.ipAddress || '—'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelected(l)
-                          }}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </GlassPanel>
+          {/* Mobile: Cards */}
+          <div className="md:hidden grid gap-3">
+            {logs.map((log) => (
+              <Card
+                key={log.id}
+                className="glass-card border-0 cursor-pointer active:scale-[0.99] transition-transform"
+                onClick={() => setSelectedLog(log)}
+              >
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{log.userName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {log.userRole ? (ROLE_LABELS[log.userRole as Role] ?? log.userRole) : ''}
+                      </p>
+                    </div>
+                    <Badge variant={actionVariant(log.action)}>{actionLabel(log.action)}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{entityLabel(log.entity)}</span>
+                    <span>{formatTimestamp(log.timestamp)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Detail Dialog */}
-      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent className="glass-strong border-0 sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <Dialog open={!!selectedLog} onOpenChange={(o) => !o && setSelectedLog(null)}>
+        <DialogContent className="glass-strong border-0 max-w-2xl max-h-[90vh]">
           <DialogHeader>
-            <DialogTitle>Butiran Log Audit</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <ScrollText className="h-5 w-5 text-primary" /> Butiran Log Audit
+            </DialogTitle>
             <DialogDescription>
-              {selected && formatTimestamp(selected.timestamp)}
+              {selectedLog && formatTimestamp(selectedLog.timestamp)}
             </DialogDescription>
           </DialogHeader>
 
-          {selected && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-md bg-muted/40 p-2.5">
-                  <p className="text-xs text-muted-foreground">Pengguna</p>
-                  <p className="font-medium">{selected.userName || '—'}</p>
-                  {selected.userRole && (
-                    <p className="text-xs text-muted-foreground">
-                      {ROLE_LABELS[selected.userRole as Role] || selected.userRole}
-                    </p>
-                  )}
+          {selectedLog && (
+            <ScrollArea className="max-h-[65vh] pr-3">
+              <div className="space-y-4">
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-border/60 p-3 bg-muted/20">
+                    <p className="text-xs text-muted-foreground">Pengguna</p>
+                    <p className="font-semibold">{selectedLog.userName}</p>
+                    {selectedLog.userRole && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {ROLE_LABELS[selectedLog.userRole as Role] ?? selectedLog.userRole}
+                      </p>
+                    )}
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3 bg-muted/20">
+                    <p className="text-xs text-muted-foreground">Aksi</p>
+                    <Badge variant={actionVariant(selectedLog.action)}>
+                      {actionLabel(selectedLog.action)}
+                    </Badge>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3 bg-muted/20">
+                    <p className="text-xs text-muted-foreground">Entiti</p>
+                    <p className="font-semibold">{entityLabel(selectedLog.entity)}</p>
+                    {selectedLog.entityId && (
+                      <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                        ID: {selectedLog.entityId}
+                      </p>
+                    )}
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3 bg-muted/20">
+                    <p className="text-xs text-muted-foreground">Alamat IP</p>
+                    <p className="font-mono text-sm">{selectedLog.ipAddress ?? '—'}</p>
+                  </div>
                 </div>
-                <div className="rounded-md bg-muted/40 p-2.5">
-                  <p className="text-xs text-muted-foreground">Aksi</p>
-                  <Badge variant={actionVariant(selected.action)}>{selected.action}</Badge>
-                </div>
-                <div className="rounded-md bg-muted/40 p-2.5">
-                  <p className="text-xs text-muted-foreground">Entiti</p>
-                  <p className="font-medium">{selected.entity}</p>
-                </div>
-                <div className="rounded-md bg-muted/40 p-2.5">
-                  <p className="text-xs text-muted-foreground">ID Entiti</p>
-                  <p className="font-mono text-xs break-all">{selected.entityId || '—'}</p>
-                </div>
-                <div className="rounded-md bg-muted/40 p-2.5 col-span-2">
-                  <p className="text-xs text-muted-foreground">Alamat IP</p>
-                  <p className="font-mono text-xs">{selected.ipAddress || '—'}</p>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs font-semibold mb-1">Data Sebelum (Before)</p>
-                  <ScrollArea className="h-48 rounded-md border border-border/40 bg-muted/20">
-                    <pre className="text-xs p-2 font-mono whitespace-pre-wrap break-all">
-                      {prettyJson(selected.before)}
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1.5">SEBELUM (Before)</p>
+                    <pre className="text-xs bg-muted/40 border border-border/60 rounded-lg p-3 overflow-x-auto max-h-60 overflow-y-auto scrollbar-thin font-mono whitespace-pre-wrap break-words">
+                      {prettyJson(selectedLog.before)}
                     </pre>
-                  </ScrollArea>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold mb-1">Data Selepas (After)</p>
-                  <ScrollArea className="h-48 rounded-md border border-border/40 bg-muted/20">
-                    <pre className="text-xs p-2 font-mono whitespace-pre-wrap break-all">
-                      {prettyJson(selected.after)}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1.5">SELEPAS (After)</p>
+                    <pre className="text-xs bg-muted/40 border border-border/60 rounded-lg p-3 overflow-x-auto max-h-60 overflow-y-auto scrollbar-thin font-mono whitespace-pre-wrap break-words">
+                      {prettyJson(selectedLog.after)}
                     </pre>
-                  </ScrollArea>
+                  </div>
                 </div>
               </div>
-            </div>
+            </ScrollArea>
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSelected(null)}>
-              Tutup
+            <Button variant="outline" onClick={() => setSelectedLog(null)} className="gap-1.5">
+              <X className="h-4 w-4" /> Tutup
             </Button>
           </DialogFooter>
         </DialogContent>

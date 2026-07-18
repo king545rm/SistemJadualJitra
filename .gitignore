@@ -71,3 +71,4 @@ upload/
 /scripts/
 start-dev.sh
 .env*
+tool-results/

@@ -16,11 +16,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ASTS — ADTEC Smart Timetable System",
+  title: "CAOMS — CKT Adik Order Management System",
   description:
-    "Sistem Penyusunan Jadual Kelas & Pensyarah ADTEC Jitra, Kedah. Jabatan Tenaga Manusia (JTM).",
-  keywords: ["ADTEC", "Jitra", "Jadual", "Pensyarah", "ASTS", "MARA", "JTM"],
-  authors: [{ name: "ADTEC Jitra — Jabatan Tenaga Manusia" }],
+    "Sistem Rekod & Pengurusan Pesanan Pelanggan CKT Adik. Tiada pesanan tercicir.",
+  keywords: ["CKT Adik", "Char Kue Teow", "Pesanan", "Order", "CAOMS"],
+  authors: [{ name: "CKT Adik" }],
 };
 
 export default function RootLayout({

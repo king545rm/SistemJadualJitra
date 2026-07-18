@@ -2,567 +2,402 @@
 
 import * as React from 'react'
 import {
-  LayoutDashboard,
-  BookOpen,
-  Users,
-  CalendarDays,
-  AlertTriangle,
-  CheckCircle2,
-  FileText,
-  Gauge,
-  ArrowRight,
-  GraduationCap,
-  RefreshCw,
+  LayoutDashboard, ShoppingCart, ChefHat, AlertTriangle, Utensils, DollarSign,
+  ArrowRight, ClipboardList, ListOrdered, CheckCircle2, Flame, UtensilsCrossed,
+  Soup, CupSoda, Package, Truck,
 } from 'lucide-react'
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from 'recharts'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress } from '@/components/ui/progress'
 import {
-  PageHeader,
-  StatCard,
-  CardSkeletons,
-  Badge,
-  GlassPanel,
-  useApi,
+  PageHeader, StatCard, LoadingState, CardSkeletons, EmptyState, Badge, GlassPanel,
+  useApi, type SectionProps,
 } from '@/components/sections/shared'
 import { api } from '@/lib/api-client'
-import type { SessionUser, Role } from '@/lib/types'
-import { ROLE_LABELS } from '@/lib/types'
-import { toast } from 'sonner'
+import {
+  KATEGORI_LIST, JENIS_PESANAN,
+  type Pesanan, type SessionUser,
+} from '@/lib/types'
 
-type SectionId =
-  | 'dashboard'
-  | 'jadual'
-  | 'generate'
-  | 'beban'
-  | 'kursus'
-  | 'pensyarah'
-  | 'modul'
-  | 'bilik'
-  | 'permohonan'
-  | 'audit'
-  | 'users'
-
-interface DashboardKursusItem {
-  id: string
-  namaKursus: string
-  kodKursus: string
-  kumpulanCount: number
-  pensyarahCount: number
-}
-
+// ---------------- Types ----------------
 interface DashboardStats {
-  kursus: number
-  kumpulan: number
-  modul: number
-  pensyarah: number
-  bilik: number
-  slot: number
-  permohonanMenunggu: number
-  clashes: number
-  modulTeras: number
-  modulUmum: number
-  kumpulanBelajar: number
-  kumpulanLatihan: number
-  loadStatus: { SELAMAT: number; HAMPIR_HAD: number; MELEBIHI: number }
-  avgLoad: number
+  totalPesananHari: number
+  pesananAktif: number
+  pesananTertunggak: number
+  jualanHari: number
+  menuTersedia: number
 }
-
+interface ActiveOrder extends Pesanan {
+  menitBerlalu: number
+  timerStatus: 'ok' | 'kuning' | 'merah'
+}
+interface TertunggakItem {
+  id: string
+  noPesanan: string
+  mejaNama?: string | null
+  menitBerlalu: number
+  status: string
+}
 interface DashboardResponse {
   session: SessionUser
   stats: DashboardStats
-  kursusList: DashboardKursusItem[]
+  activeOrders: ActiveOrder[]
+  tertunggakList: TertunggakItem[]
+  salesByKategori: Record<string, number>
 }
 
-interface DashboardSectionProps {
-  user: SessionUser
-  onNavigate: (section: SectionId) => void
+// Warm food-brand chart palette (NO blue/indigo)
+const CHART_COLORS = [
+  'oklch(0.65 0.2 35)',    // orange-red (chart-1)
+  'oklch(0.68 0.16 70)',   // amber (chart-2)
+  'oklch(0.6 0.15 140)',   // green (chart-3)
+  'oklch(0.62 0.18 15)',   // red (chart-4)
+  'oklch(0.7 0.13 90)',    // yellow-gold (chart-5)
+]
+
+function timerVariant(t: 'ok' | 'kuning' | 'merah') {
+  if (t === 'merah') return 'danger' as const
+  if (t === 'kuning') return 'warning' as const
+  return 'success' as const
 }
 
-// Chart palette — emerald / amber / red-orange (NO indigo/blue)
-const CHART_COLORS = {
-  emerald: 'var(--chart-1)',
-  amber: 'var(--chart-2)',
-  red: 'var(--chart-3)',
+function timerClasses(t: 'ok' | 'kuning' | 'merah') {
+  if (t === 'merah') return 'text-red-600 dark:text-red-400'
+  if (t === 'kuning') return 'text-amber-600 dark:text-amber-400'
+  return 'text-emerald-600 dark:text-emerald-400'
 }
 
-const PIE_DATA_KEY: Record<keyof DashboardStats['loadStatus'], string> = {
-  SELAMAT: 'Selamat',
-  HAMPIR_HAD: 'Hampir Had',
-  MELEBIHI: 'Melebihi',
+function formatRM(n: number) {
+  return `RM ${Number(n || 0).toFixed(2)}`
 }
 
-export function DashboardSection({ user, onNavigate }: DashboardSectionProps) {
+function formatTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return '--:--'
+  }
+}
+
+function JenisIcon({ jenis, className }: { jenis: string; className?: string }) {
+  if (jenis === 'BUNGKUS') return <Package className={className} />
+  if (jenis === 'DELIVERY') return <Truck className={className} />
+  return <Utensils className={className} />
+}
+
+function kategoriIcon(key: string) {
+  if (key === 'NASI') return Soup
+  if (key === 'MINUMAN') return CupSoda
+  if (key === 'SNEK') return Package
+  if (key === 'TAMBAHAN') return UtensilsCrossed
+  return Utensils // MEE_KUEY_TEOW default
+}
+
+// ---------------- Component ----------------
+export function DashboardSection({ user, onNavigate }: SectionProps) {
   const { data, loading, error, refresh } = useApi<DashboardResponse>(
     () => api.get<DashboardResponse>('/api/dashboard'),
     [],
   )
 
-  const isPensyarah = user.role === 'PENSYARAH'
+  // Auto-refresh every 30 seconds
+  React.useEffect(() => {
+    const id = setInterval(() => refresh(), 30_000)
+    return () => clearInterval(id)
+  }, [refresh])
 
-  if (loading) {
+  const isDapur = user.role === 'DAPUR'
+
+  if (loading && !data) return <><PageHeader title="Papan Pemuka" icon={LayoutDashboard} description="Memuatkan data..." /><CardSkeletons count={4} /></>
+  if (error && !data) {
     return (
-      <div className="space-y-5">
-        <PageHeader
-          title="Papan Pemuka"
-          description="Memuatkan ringkasan sistem..."
-          icon={LayoutDashboard}
-        />
-        <CardSkeletons count={6} />
-      </div>
+      <>
+        <PageHeader title="Papan Pemuka" icon={LayoutDashboard} description={`Selamat datang, ${user.name}`} />
+        <EmptyState title="Gagal memuatkan papan pemuka" description={error} icon={AlertTriangle}
+          action={<Button onClick={refresh}>Cuba Semula</Button>} />
+      </>
     )
   }
+  if (!data) return null
 
-  if (error || !data) {
-    return (
-      <div className="space-y-5">
-        <PageHeader
-          title="Papan Pemuka"
-          description="Ralat memuatkan data"
-          icon={LayoutDashboard}
-          actions={
-            <Button variant="outline" size="sm" onClick={refresh}>
-              <RefreshCw className="h-4 w-4" /> Cuba Semula
-            </Button>
-          }
-        />
-        <GlassPanel>
-          <CardContent className="p-6 text-center text-destructive">
-            {error || 'Tidak dapat memuatkan papan pemuka.'}
-          </CardContent>
-        </GlassPanel>
-      </div>
-    )
-  }
+  const { stats, activeOrders, tertunggakList, salesByKategori } = data
 
-  const { stats, kursusList } = data
-  const clashes = stats.clashes
-  const hasClashes = clashes > 0
+  // Build pie chart data
+  const pieData = KATEGORI_LIST.map((k, i) => ({
+    name: k.label,
+    key: k.key,
+    value: salesByKategori[k.key] ?? 0,
+    color: CHART_COLORS[i % CHART_COLORS.length],
+  })).filter((d) => d.value > 0)
 
-  // Pie chart data
-  const pieData = (Object.keys(stats.loadStatus) as Array<keyof DashboardStats['loadStatus']>)
-    .map((k) => ({
-      name: PIE_DATA_KEY[k],
-      value: stats.loadStatus[k],
-      key: k,
-    }))
-    .filter((d) => d.value > 0)
-
-  const pieColorMap: Record<string, string> = {
-    SELAMAT: CHART_COLORS.emerald,
-    HAMPIR_HAD: CHART_COLORS.amber,
-    MELEBIHI: CHART_COLORS.red,
-  }
-
-  // Bar chart data
-  const barData = kursusList.map((k) => ({
-    kod: k.kodKursus,
-    pensyarah: k.pensyarahCount,
-    kumpulan: k.kumpulanCount,
-  }))
+  const previewOrders = activeOrders.slice(0, 6)
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Papan Pemuka"
-        description={`Selamat datang, ${user.name} · ${ROLE_LABELS[user.role as Role]}`}
+        description={`Selamat datang, ${user.name}`}
         icon={LayoutDashboard}
         actions={
-          <Button variant="outline" size="sm" onClick={refresh}>
-            <RefreshCw className="h-4 w-4" /> Muat Semula
+          <Button variant="outline" size="sm" onClick={refresh} className="h-10">
+            <ArrowRight className="h-4 w-4 mr-1 rotate-90" /> Muat Semula
           </Button>
         }
       />
 
-      {/* Pensyarah personalised welcome */}
-      {isPensyarah && (
-        <GlassPanel>
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="h-11 w-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                  <GraduationCap className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="font-semibold text-base">Panel Peribadi Pensyarah</p>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    Lihat jadual mingguan anda, kemas kini permohonan pertukaran slot, dan pantau beban tugas semasa.
-                  </p>
-                </div>
-              </div>
-              <Button onClick={() => onNavigate('jadual')} className="shrink-0">
-                <CalendarDays className="h-4 w-4" /> Lihat Jadual Saya
-              </Button>
-            </div>
-          </CardContent>
-        </GlassPanel>
-      )}
-
-      {/* Stat cards */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+      {/* ---------- Stats ---------- */}
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+        {!isDapur && (
+          <StatCard
+            label="Jualan Hari Ini"
+            value={formatRM(stats.jualanHari)}
+            icon={DollarSign}
+            trend="Hasil jualan hari ini"
+            variant="success"
+          />
+        )}
         <StatCard
-          label="Total Kursus"
-          value={stats.kursus}
-          icon={BookOpen}
-          trend={`${stats.modulTeras} teras · ${stats.modulUmum} umum`}
+          label="Pesanan Hari Ini"
+          value={stats.totalPesananHari}
+          icon={ShoppingCart}
+          trend="Jumlah pesanan direkod"
         />
         <StatCard
-          label="Kumpulan Semester"
-          value={stats.kumpulan}
-          icon={Users}
-          trend={`${stats.kumpulanBelajar} belajar · ${stats.kumpulanLatihan} latihan`}
+          label="Pesanan Aktif"
+          value={stats.pesananAktif}
+          icon={ChefHat}
+          trend="Sedang diproses dapur"
+          variant={stats.pesananAktif > 0 ? 'warning' : 'default'}
         />
         <StatCard
-          label="Pensyarah"
-          value={stats.pensyarah}
-          icon={GraduationCap}
-          trend="Aktif mengajar"
-        />
-        <StatCard
-          label="Slot Kelas"
-          value={stats.slot}
-          icon={CalendarDays}
-          trend={`${stats.bilik} bilik tersedia`}
-        />
-        <StatCard
-          label="Pertindihan Aktif"
-          value={clashes}
+          label="Pesanan Tertunggak"
+          value={stats.pesananTertunggak}
           icon={AlertTriangle}
-          variant={hasClashes ? 'danger' : 'success'}
-          trend={hasClashes ? 'Memerlukan tindakan' : 'Bebas konflik'}
+          trend={stats.pesananTertunggak > 0 ? `Melebihi 20 minit` : 'Semua dalam kawalan'}
+          variant={stats.pesananTertunggak > 0 ? 'danger' : 'success'}
         />
-        <StatCard
-          label="Permohonan Menunggu"
-          value={stats.permohonanMenunggu}
-          icon={FileText}
-          variant={stats.permohonanMenunggu > 0 ? 'warning' : 'default'}
-          trend={stats.permohonanMenunggu > 0 ? 'Menanti kelulusan' : 'Tiada permohonan'}
-        />
+        {!isDapur && (
+          <StatCard
+            label="Menu Tersedia"
+            value={stats.menuTersedia}
+            icon={Utensils}
+            trend="Item sedia untuk dijual"
+          />
+        )}
       </div>
 
-      {/* Clash alert banner */}
-      {hasClashes ? (
-        <div
-          role="alert"
-          className="glass-strong rounded-xl border border-red-500/40 bg-red-500/10 p-4 sm:p-5"
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <div className="h-10 w-10 rounded-lg bg-red-500/20 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
-                <AlertTriangle className="h-5 w-5" />
+      {/* ---------- Tertunggak Alert Banner ---------- */}
+      {stats.pesananTertunggak > 0 ? (
+        <Card className="glass-card border-0 border-l-4 border-l-red-500 bg-red-500/10">
+          <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 rounded-full bg-red-500/20 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-6 w-6" />
               </div>
               <div>
                 <p className="font-semibold text-red-700 dark:text-red-300">
-                  {clashes} pertindihan dikesan dalam jadual
+                  ⚠️ {stats.pesananTertunggak} pesanan tertunggak melebihi 20 minit!
                 </p>
-                <p className="text-sm text-red-600/80 dark:text-red-300/80 mt-0.5">
-                  Sila semak dan selesaikan pertindihan slot untuk memastikan jadual bebas konflik.
+                <p className="text-sm text-red-600/80 dark:text-red-400/80">
+                  Sila semak papan status dan utamakan pesanan ini.
                 </p>
               </div>
             </div>
             <Button
-              variant="destructive"
-              onClick={() => onNavigate('jadual')}
-              className="shrink-0"
+              onClick={() => onNavigate('papan')}
+              className="bg-red-600 hover:bg-red-700 text-white shrink-0 h-11"
             >
-              <AlertTriangle className="h-4 w-4" /> Lihat Pertindihan
+              <ListOrdered className="h-4 w-4 mr-2" /> Lihat Papan Status
             </Button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       ) : (
-        <div
-          role="alert"
-          className="glass-strong rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 sm:p-5"
-        >
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="h-5 w-5" />
+        <Card className="glass-card border-0 border-l-4 border-l-emerald-500 bg-emerald-500/10">
+          <CardContent className="p-4 sm:p-5 flex items-center gap-3">
+            <div className="h-11 w-11 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="h-6 w-6" />
             </div>
             <div>
-              <p className="font-semibold text-emerald-700 dark:text-emerald-300">
-                0 pertindihan — jadual bebas konflik ✅
-              </p>
-              <p className="text-sm text-emerald-600/80 dark:text-emerald-300/80 mt-0.5">
-                Semua slot kelas semasa tidak bertindih antara pensyarah, bilik, atau kumpulan.
+              <p className="font-semibold text-emerald-700 dark:text-emerald-300">✅ Tiada pesanan tertunggak</p>
+              <p className="text-sm text-emerald-600/80 dark:text-emerald-400/80">
+                Semua pesanan dalam kawalan masa yang ditetapkan.
               </p>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Charts grid */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Bar chart — Pensyarah per Kursus */}
-        <GlassPanel>
-          <CardHeader className="px-5 pt-5 pb-2">
-            <CardTitle className="text-base">Pensyarah per Kursus</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Bilangan pensyarah yang mengajar dalam setiap kursus
-            </p>
-          </CardHeader>
-          <CardContent className="px-2 pb-4">
-            <div className="h-[280px] w-full">
-              {barData.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                  Tiada data kursus
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={barData} margin={{ top: 12, right: 16, left: -8, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis
-                      dataKey="kod"
-                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
-                      tickLine={false}
-                      axisLine={{ stroke: 'var(--border)' }}
-                      interval={0}
-                      angle={-12}
-                      textAnchor="end"
-                      height={50}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
-                      tickLine={false}
-                      axisLine={{ stroke: 'var(--border)' }}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: 'var(--popover)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        color: 'var(--popover-foreground)',
-                      }}
-                      cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
-                    />
-                    <Bar
-                      dataKey="pensyarah"
-                      name="Pensyarah"
-                      fill={CHART_COLORS.emerald}
-                      radius={[6, 6, 0, 0]}
-                      maxBarSize={48}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </CardContent>
-        </GlassPanel>
-
-        {/* Pie chart — Status Beban Tugas */}
-        <GlassPanel>
-          <CardHeader className="px-5 pt-5 pb-2">
-            <CardTitle className="text-base">Status Beban Tugas Pensyarah</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Agihan beban mengajar relatif kepada had jam maksimum
-            </p>
-          </CardHeader>
-          <CardContent className="px-2 pb-4">
-            <div className="h-[280px] w-full">
-              {pieData.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                  Tiada data beban tugas
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={55}
-                      outerRadius={90}
-                      paddingAngle={3}
-                      stroke="var(--background)"
-                      strokeWidth={2}
-                    >
-                      {pieData.map((entry) => (
-                        <Cell key={entry.key} fill={pieColorMap[entry.key]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        background: 'var(--popover)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        color: 'var(--popover-foreground)',
-                      }}
-                    />
-                    <Legend
-                      verticalAlign="bottom"
-                      iconType="circle"
-                      wrapperStyle={{ fontSize: 12, color: 'var(--muted-foreground)' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </CardContent>
-        </GlassPanel>
-      </div>
-
-      {/* Kursus Aktif list + Beban Tugas mini-summary */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Kursus Aktif — spans 2 cols */}
-        <div className="lg:col-span-2 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold">Kursus Aktif</h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onNavigate('kursus')}
-              className="text-primary"
-            >
-              Lihat Semua <ArrowRight className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {kursusList.length === 0 ? (
-              <GlassPanel>
-                <CardContent className="p-6 text-sm text-muted-foreground text-center sm:col-span-2">
-                  Tiada kursus berdaftar.
-                </CardContent>
-              </GlassPanel>
-            ) : (
-              kursusList.map((k) => (
-                <button
-                  key={k.id}
-                  onClick={() => onNavigate('kursus')}
-                  className="text-left transition-transform hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-xl"
-                >
-                  <Card className="glass-card border-0 h-full">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <span className="inline-flex items-center rounded-md bg-primary/15 text-primary border border-primary/30 px-2 py-0.5 text-[11px] font-semibold tracking-wide">
-                          {k.kodKursus}
-                        </span>
-                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <p className="font-medium text-sm leading-snug line-clamp-2 min-h-[2.5rem]">
-                        {k.namaKursus}
-                      </p>
-                      <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1">
-                          <Users className="h-3.5 w-3.5" /> {k.kumpulanCount} kumpulan
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <GraduationCap className="h-3.5 w-3.5" /> {k.pensyarahCount} pensyarah
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Beban Tugas mini-summary */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold flex items-center gap-2">
-              <Gauge className="h-4 w-4 text-primary" /> Beban Tugas
-            </h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onNavigate('beban')}
-              className="text-primary"
-            >
-              Butiran <ArrowRight className="h-4 w-4" />
-            </Button>
-          </div>
+      <div className={`grid gap-4 ${isDapur ? 'lg:grid-cols-1' : 'lg:grid-cols-3'}`}>
+        {/* ---------- Active Orders Preview ---------- */}
+        <div className={isDapur ? 'lg:col-span-1' : 'lg:col-span-2'}>
           <GlassPanel>
-            <CardContent className="p-5 space-y-4">
-              <div>
-                <div className="flex items-baseline justify-between mb-1.5">
-                  <p className="text-sm text-muted-foreground">Beban Purata</p>
-                  <p className="text-lg font-bold text-primary">{stats.avgLoad}%</p>
-                </div>
-                <Progress
-                  value={Math.min(stats.avgLoad, 100)}
-                  className="h-2"
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Flame className="h-4 w-4 text-primary" /> Pesanan Aktif
+                  <Badge variant="info">{activeOrders.length}</Badge>
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => onNavigate('papan')} className="h-9 text-primary">
+                  Lihat Semua <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {previewOrders.length === 0 ? (
+                <EmptyState
+                  title="Tiada pesanan aktif"
+                  description="Pesanan baharu akan dipaparkan di sini."
+                  icon={ChefHat}
+                  action={<Button onClick={() => onNavigate('ambil')} className="h-11"><ClipboardList className="h-4 w-4 mr-2" /> Ambil Pesanan</Button>}
                 />
-                <p className="text-[11px] text-muted-foreground mt-1.5">
-                  Relatif kepada had jam maksimum semua pensyarah
-                </p>
-              </div>
-
-              <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Selamat</span>
-                  <Badge variant="success">{stats.loadStatus.SELAMAT}</Badge>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {previewOrders.map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => onNavigate('papan')}
+                      className="text-left glass-card border-0 p-3 rounded-xl hover:ring-2 hover:ring-primary/50 transition-all min-h-[44px]"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-primary">{o.noPesanan}</span>
+                          <JenisIcon jenis={o.jenis} className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                        <Badge variant={timerVariant(o.timerStatus)}>
+                          {o.menitBerlalu} min
+                        </Badge>
+                      </div>
+                      <p className="text-sm font-medium truncate">
+                        {o.mejaNama || o.pelanggan?.nama || JENIS_PESANAN[o.jenis].label}
+                      </p>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          {o.items.length} item · {formatTime(o.waktuPesanan)}
+                        </span>
+                        <span className="text-sm font-semibold">{formatRM(o.jumlah)}</span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Hampir Had (≥80%)</span>
-                  <Badge variant="warning">{stats.loadStatus.HAMPIR_HAD}</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Melebihi Had (&gt;100%)</span>
-                  <Badge variant="danger">{stats.loadStatus.MELEBIHI}</Badge>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => onNavigate('beban')}
-              >
-                <Gauge className="h-4 w-4" /> Urus Beban Tugas
-              </Button>
+              )}
             </CardContent>
           </GlassPanel>
         </div>
+
+        {/* ---------- Sales by Category (hidden for DAPUR) ---------- */}
+        {!isDapur && (
+          <GlassPanel>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <UtensilsCrossed className="h-4 w-4 text-primary" /> Jualan Mengikut Kategori
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {pieData.length === 0 ? (
+                <EmptyState title="Tiada jualan hari ini" description="Jualan akan dipaparkan di sini." icon={DollarSign} />
+              ) : (
+                <>
+                  <div className="h-[200px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={45}
+                          outerRadius={80}
+                          paddingAngle={2}
+                          stroke="none"
+                        >
+                          {pieData.map((d) => (
+                            <Cell key={d.key} fill={d.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(v: number) => formatRM(v)}
+                          contentStyle={{
+                            background: 'var(--popover)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                          }}
+                        />
+                        <Legend
+                          iconType="circle"
+                          iconSize={8}
+                          wrapperStyle={{ fontSize: '11px' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-3 space-y-1.5 max-h-32 overflow-y-auto scrollbar-thin">
+                    {pieData.map((d) => {
+                      const Icon = kategoriIcon(d.key)
+                      return (
+                        <div key={d.key} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-muted-foreground">{d.name}</span>
+                          </div>
+                          <span className="font-semibold">{formatRM(d.value)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </GlassPanel>
+        )}
       </div>
 
-      {/* Quick actions */}
+      {/* ---------- Quick Actions ---------- */}
       <GlassPanel>
-        <CardContent className="p-5">
-          <p className="text-sm font-semibold mb-3">Akses Pantas</p>
+        <CardContent className="p-4 sm:p-5">
+          <p className="text-sm font-medium text-muted-foreground mb-3">Tindakan Pantas</p>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => onNavigate('jadual')}>
-              <CalendarDays className="h-4 w-4" /> Jadual Kelas
+            <Button onClick={() => onNavigate('ambil')} className="h-11 px-5">
+              <ClipboardList className="h-4 w-4 mr-2" /> Ambil Pesanan
             </Button>
-            <Button variant="outline" size="sm" onClick={() => onNavigate('generate')}>
-              Jana Jadual AI
+            <Button onClick={() => onNavigate('papan')} variant="outline" className="h-11 px-5">
+              <ListOrdered className="h-4 w-4 mr-2" /> Papan Status
             </Button>
-            <Button variant="outline" size="sm" onClick={() => onNavigate('permohonan')}>
-              <FileText className="h-4 w-4" /> Permohonan Pertukaran
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => onNavigate('bilik')}>
-              Bilik &amp; Makmal
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                refresh()
-                toast.success('Papan pemuka dikemas kini.')
-              }}
-            >
-              <RefreshCw className="h-4 w-4" /> Muat Semula Data
-            </Button>
+            {!isDapur && (
+              <Button onClick={() => onNavigate('menu')} variant="outline" className="h-11 px-5">
+                <UtensilsCrossed className="h-4 w-4 mr-2" /> Menu & Harga
+              </Button>
+            )}
           </div>
         </CardContent>
       </GlassPanel>
+
+      {/* ---------- Tertunggak List (compact) ---------- */}
+      {tertunggakList.length > 0 && (
+        <GlassPanel>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2 text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-4 w-4" /> Senarai Tertunggak
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {tertunggakList.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => onNavigate('papan')}
+                  className="text-left p-3 rounded-lg bg-red-500/10 border border-red-500/30 hover:bg-red-500/15 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-primary">{t.noPesanan}</span>
+                    <span className="text-sm font-bold text-red-600 dark:text-red-400">{t.menitBerlalu} min</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t.mejaNama || 'Tiada meja'}</p>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </GlassPanel>
+      )}
     </div>
   )
 }

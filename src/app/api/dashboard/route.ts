@@ -1,66 +1,91 @@
 import { db } from '@/lib/db'
 import { requireAuth, okResponse, errorResponse } from '@/lib/session'
-import { findAllClashes } from '@/lib/clash-detection'
-import { getLoadDistribution } from '@/lib/teaching-load'
+import { ALERT_KUNING_MINIT, ALERT_MERAH_MINIT, AMARAN_TERTUNGGAK_MINIT } from '@/lib/types'
+
+function minsBetween(start: string | Date, end: number = Date.now()): number {
+  const s = typeof start === 'string' ? new Date(start).getTime() : start.getTime()
+  return Math.floor((end - s) / 60000)
+}
 
 export async function GET() {
   try {
     const session = await requireAuth()
 
-    const [kursusCount, kumpulanCount, modulCount, pensyarahCount, bilikCount, slotCount, permohonanCount, clashes, load] =
-      await Promise.all([
-        db.kursus.count(),
-        db.kumpulanSemester.count(),
-        db.modul.count(),
-        db.pensyarah.count(),
-        db.bilik.count(),
-        db.slotJadual.count(),
-        db.permohonanPertukaran.count({ where: { status: 'MENUNGGU' } }),
-        findAllClashes(),
-        getLoadDistribution(),
-      ])
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
 
-    // Modules by category
-    const terasCount = await db.modul.count({ where: { kategori: 'TERAS' } })
-    const umumCount = await db.modul.count({ where: { kategori: 'UMUM' } })
+    const [
+      totalPesananHari,
+      pesananAktif,
+      pesananTertunggak,
+      jualanHari,
+      menuTersedia,
+      pesananHariIni,
+    ] = await Promise.all([
+      db.pesanan.count({ where: { waktuPesanan: { gte: today, lt: tomorrow } } }),
+      db.pesanan.count({ where: { status: { in: ['DITERIMA', 'DIMASAK', 'SIAP'] } } }),
+      db.pesanan.findMany({
+        where: {
+          status: { in: ['DITERIMA', 'DIMASAK'] },
+          waktuPesanan: { lt: new Date(Date.now() - AMARAN_TERTUNGGAK_MINIT * 60000) },
+        },
+        include: { items: true },
+      }),
+      db.pesanan.aggregate({
+        where: { waktuPesanan: { gte: today, lt: tomorrow }, status: { not: 'DIBATALKAN' } },
+        _sum: { jumlah: true },
+      }),
+      db.menu.count({ where: { tersedia: true } }),
+      db.pesanan.findMany({
+        where: { waktuPesanan: { gte: today, lt: tomorrow } },
+        include: { items: true },
+      }),
+    ])
 
-    // Kumpulan by status
-    const belajarCount = await db.kumpulanSemester.count({ where: { status: 'BELAJAR' } })
-    const latihanCount = await db.kumpulanSemester.count({ where: { status: 'LATIHAN_INDUSTRI' } })
-
-    // Per-course stats
-    const kursusList = await db.kursus.findMany({
-      include: {
-        _count: { select: { kumpulan: true, pensyarahKursus: true } },
-      },
-      orderBy: { kodKursus: 'asc' },
+    const activeOrders = await db.pesanan.findMany({
+      where: { status: { in: ['DITERIMA', 'DIMASAK', 'SIAP'] } },
+      include: { items: true, pelanggan: true },
+      orderBy: { waktuPesanan: 'asc' },
     })
+
+    const ordersWithTimers = activeOrders.map((o) => {
+      const mins = minsBetween(o.waktuPesanan)
+      let timerStatus: 'ok' | 'kuning' | 'merah' = 'ok'
+      if (mins > ALERT_MERAH_MINIT) timerStatus = 'merah'
+      else if (mins > ALERT_KUNING_MINIT) timerStatus = 'kuning'
+      return { ...o, menitBerlalu: mins, timerStatus }
+    })
+
+    const salesByKategori: Record<string, number> = {}
+    for (const p of pesananHariIni) {
+      if (p.status === 'DIBATALKAN') continue
+      for (const item of p.items) {
+        const menu = await db.menu.findUnique({ where: { id: item.menuId } })
+        const kat = menu?.kategori ?? 'LAIN'
+        salesByKategori[kat] = (salesByKategori[kat] ?? 0) + item.subtotal
+      }
+    }
 
     return okResponse({
       session,
       stats: {
-        kursus: kursusCount,
-        kumpulan: kumpulanCount,
-        modul: modulCount,
-        pensyarah: pensyarahCount,
-        bilik: bilikCount,
-        slot: slotCount,
-        permohonanMenunggu: permohonanCount,
-        clashes: clashes.totalClashes,
-        modulTeras: terasCount,
-        modulUmum: umumCount,
-        kumpulanBelajar: belajarCount,
-        kumpulanLatihan: latihanCount,
-        loadStatus: load.byStatus,
-        avgLoad: load.avgLoad,
+        totalPesananHari,
+        pesananAktif,
+        pesananTertunggak: pesananTertunggak.length,
+        jualanHari: jualanHari._sum.jumlah ?? 0,
+        menuTersedia,
       },
-      kursusList: kursusList.map((k) => ({
-        id: k.id,
-        namaKursus: k.namaKursus,
-        kodKursus: k.kodKursus,
-        kumpulanCount: k._count.kumpulan,
-        pensyarahCount: k._count.pensyarahKursus,
+      activeOrders: ordersWithTimers,
+      tertunggakList: pesananTertunggak.map((o) => ({
+        id: o.id,
+        noPesanan: o.noPesanan,
+        mejaNama: o.mejaNama,
+        menitBerlalu: minsBetween(o.waktuPesanan),
+        status: o.status,
       })),
+      salesByKategori,
     })
   } catch (e) {
     return errorResponse(e)

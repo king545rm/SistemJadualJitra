@@ -1,13 +1,13 @@
-// ASTS - ADTEC Smart Timetable System
-// Prisma schema (Supabase PostgreSQL). Array fields are modelled as JSON strings or junction tables.
+// CAOMS — CKT Adik Order Management System
+// Prisma schema (Supabase PostgreSQL)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ---------- Authentication & RBAC ----------
@@ -16,9 +16,7 @@ model User {
   email               String    @unique
   name                String
   passwordHash        String
-  role                String    // TIMBALAN_PENGARAH | KETUA_KURSUS | HEA | PENSYARAH | IT
-  kursusId            String?   // for KETUA_KURSUS - which course they head
-  pensyarahId         String?   @unique // link to Pensyarah if role is PENSYARAH
+  role                String    // PEMILIK | KAUNTER | DAPUR
   isDummy             Boolean   @default(true)
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
@@ -27,161 +25,90 @@ model User {
   updatedAt           DateTime  @updatedAt
 
   auditLogs AuditLog[]
-  kursus    Kursus?   @relation("KursusKetua", fields: [kursusId], references: [id])
-  pensyarah Pensyarah? @relation(fields: [pensyarahId], references: [id])
+  pesanan   Pesanan[]
 
   @@index([role])
 }
 
 // ---------- Master Data ----------
-model Kursus {
-  id         String   @id @default(cuid())
-  namaKursus String
-  kodKursus  String   @unique
-  deskripsi  String?
-  isDummy    Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  kumpulan        KumpulanSemester[]
-  pensyarahKursus PensyarahKursus[]
-  ketua           User[]              @relation("KursusKetua")
-}
-
-model KumpulanSemester {
+model Menu {
   id          String   @id @default(cuid())
-  kursusId    String
-  semesterNo  Int      // 1-4
-  bilPelajar  Int      @default(30)
-  status      String   // BELAJAR | LATIHAN_INDUSTRI | TAMAT
-  kohortNama  String   // e.g. "Kohort 2024/2026"
+  nama        String
+  kod         String   @unique
+  kategori    String   // MEE_KUEY_TEOW | NASI | MINUMAN | SNEK | TAMBAHAN
+  harga       Float
+  deskripsi   String?
+  tersedia    Boolean  @default(true)
   isDummy     Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  kursus     Kursus            @relation(fields: [kursusId], references: [id])
-  modul      Modul[]
+  orderItems OrderItem[]
 
-  @@unique([kursusId, semesterNo, kohortNama])
-  @@index([kursusId])
-}
-
-model Modul {
-  id                String   @id @default(cuid())
-  kumpulanId        String
-  namaModul         String
-  kodModul          String
-  kategori          String   // TERAS | UMUM
-  jamKredit         Int      @default(3)
-  jamKontakMingguan Int      @default(4) // contact hours per week
-  isDummy           Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  kumpulan       KumpulanSemester @relation(fields: [kumpulanId], references: [id])
-  slotJadual     SlotJadual[]
-  pensyarahModul PensyarahModul[]
-
-  @@index([kumpulanId])
   @@index([kategori])
+  @@index([tersedia])
 }
 
-model Pensyarah {
-  id             String   @id @default(cuid())
-  nama           String
-  email          String   @unique
-  telefon        String?
-  kepakaran      String   // JSON array string of expertise areas
-  hadJamMaksimum Int      @default(20) // max teaching hours per week
-  isDummy        Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  slotJadual      SlotJadual[]
-  pensyarahModul  PensyarahModul[]
-  pensyarahKursus PensyarahKursus[]
-  permohonan      PermohonanPertukaran[]
-  user            User?
-}
-
-model PensyarahModul {
-  pensyarahId String
-  modulId     String
-
-  pensyarah Pensyarah @relation(fields: [pensyarahId], references: [id], onDelete: Cascade)
-  modul     Modul     @relation(fields: [modulId], references: [id], onDelete: Cascade)
-
-  @@id([pensyarahId, modulId])
-  @@index([modulId])
-}
-
-model PensyarahKursus {
-  pensyarahId String
-  kursusId    String
-
-  pensyarah Pensyarah @relation(fields: [pensyarahId], references: [id], onDelete: Cascade)
-  kursus    Kursus    @relation(fields: [kursusId], references: [id], onDelete: Cascade)
-
-  @@id([pensyarahId, kursusId])
-  @@index([kursusId])
-}
-
-model Bilik {
-  id        String   @id @default(cuid())
-  namaBilik String   @unique
-  jenis     String   // KELAS | MAKMAL | BENGKEL
-  kapasiti  Int      @default(30)
-  isDummy   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  slotJadual SlotJadual[]
-}
-
-// ---------- Schedule ----------
-model SlotJadual {
+model Pelanggan {
   id          String   @id @default(cuid())
-  modulId     String
-  pensyarahId String
-  bilikId     String?
-  hari        String   // ISNIN | SELASA | RABU | KHAMIS | JUMAAT
-  masaMula    String   // "08:00"
-  masaTamat   String   // "10:00"
+  nama        String
+  telefon     String   @unique
+  catatan     String?
   isDummy     Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  modul      Modul     @relation(fields: [modulId], references: [id])
-  pensyarah  Pensyarah @relation(fields: [pensyarahId], references: [id])
-  bilik      Bilik?    @relation(fields: [bilikId], references: [id])
-  permohonan PermohonanPertukaran[]
+  pesanan Pesanan[]
 
-  @@index([pensyarahId, hari])
-  @@index([bilikId, hari])
-  @@index([modulId])
+  @@index([telefon])
 }
 
-model PermohonanPertukaran {
-  id                    String   @id @default(cuid())
-  pensyarahId           String
-  slotAsalId            String
-  slotCadanganHari      String?
-  slotCadanganMasaMula  String?
-  slotCadanganMasaTamat String?
-  bilikCadanganId       String?
-  alasan                String
-  status                String   @default("MENUNGGU") // MENUNGGU | DILULUSKAN | DITOLAK
-  sumber                String   @default("MANUAL") // JOTFORM | MANUAL
-  catatanPengurus       String?
-  diluluskanOleh        String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+// ---------- Orders ----------
+model Pesanan {
+  id            String    @id @default(cuid())
+  noPesanan     String    @unique // auto-generated: ORD-001, ORD-002...
+  jenis         String    // DINE_IN | BUNGKUS | DELIVERY
+  mejaNama      String?   // table number or customer name
+  pelangganId   String?
+  status        String    @default("DITERIMA") // DITERIMA | DIMASAK | SIAP | DIAMBIL | DIBATALKAN
+  jumlah        Float     @default(0)
+  jumlahDibayar Float     @default(0)
+  baki          Float     @default(0)
+  catatan       String?
+  waktuPesanan  DateTime  @default(now())
+  waktuSiap     DateTime?
+  waktuAmbil    DateTime?
+  diambilOleh   String?   // user id who took the order
+  isDummy       Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  pensyarah Pensyarah   @relation(fields: [pensyarahId], references: [id])
-  slotAsal  SlotJadual  @relation(fields: [slotAsalId], references: [id])
+  pelanggan Pelanggan? @relation(fields: [pelangganId], references: [id])
+  user      User?      @relation(fields: [diambilOleh], references: [id])
+  items     OrderItem[]
 
   @@index([status])
-  @@index([pensyarahId])
+  @@index([waktuPesanan])
+  @@index([jenis])
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  pesananId   String
+  menuId      String
+  namaSewaktu String   // snapshot of menu name at order time
+  hargaSewaktu Float   // snapshot of price
+  kuantiti    Int      @default(1)
+  opsyen      String?  // JSON: { addOns: [], customizations: "" }
+  nota        String?  // e.g. "tak nak taugeh", "pedas"
+  subtotal    Float
+  createdAt   DateTime @default(now())
+
+  pesanan Pesanan @relation(fields: [pesananId], references: [id], onDelete: Cascade)
+  menu    Menu    @relation(fields: [menuId], references: [id])
+
+  @@index([pesananId])
+  @@index([menuId])
 }
 
 // ---------- Governance ----------
@@ -190,11 +117,11 @@ model AuditLog {
   userId    String?
   userName  String
   userRole  String?
-  action    String   // CREATE | UPDATE | DELETE | LOGIN | LOGOUT | LOGIN_FAILED | APPROVE | REJECT | GENERATE
-  entity    String   // KURSUS | PENSYARAH | MODUL | SLOT_JADUAL | PERMOHONAN | USER | etc.
+  action    String   // CREATE | UPDATE | DELETE | LOGIN | LOGOUT | LOGIN_FAILED | STATUS_UPDATE | CANCEL
+  entity    String   // PESANAN | MENU | PELANGGAN | USER | etc.
   entityId  String?
-  before    String?  // JSON string
-  after     String?  // JSON string
+  before    String?
+  after     String?
   ipAddress String?
   timestamp DateTime @default(now())
 

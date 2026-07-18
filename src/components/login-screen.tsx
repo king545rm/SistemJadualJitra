@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { GraduationCap, Loader2, Lock, Mail, ShieldCheck, Eye, EyeOff } from 'lucide-react'
+import { Flame, Loader2, Lock, Mail, ShieldCheck, Eye, EyeOff, UtensilsCrossed } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface LoginScreenProps {
@@ -15,11 +15,9 @@ interface LoginScreenProps {
 }
 
 const DEMO_ACCOUNTS = [
-  { email: 'timbalan@adtecjitra.gov.my', role: 'Timbalan Pengarah', desc: 'Akses penuh' },
-  { email: 'hea@adtecjitra.gov.my', role: 'HEA', desc: 'Selaras jadual' },
-  { email: 'ketua.dte@adtecjitra.gov.my', role: 'Ketua Kursus DTE', desc: 'Urus kursus sendiri' },
-  { email: 'pensyarah1@adtecjitra.gov.my', role: 'Pensyarah', desc: 'Lihat jadual sendiri' },
-  { email: 'admin@adtecjitra.gov.my', role: 'IT', desc: 'Pentadbir sistem' },
+  { email: 'pemilik@cktadik.my', role: 'Pemilik', desc: 'Akses penuh' },
+  { email: 'kaunter@cktadik.my', role: 'Pekerja Kaunter', desc: 'Ambil pesanan' },
+  { email: 'dapur@cktadik.my', role: 'Pekerja Dapur', desc: 'Lihat pesanan' },
 ]
 
 export function LoginScreen({ onSuccess }: LoginScreenProps) {
@@ -45,7 +43,7 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
   function fillDemo(em: string) {
     setEmail(em)
-    setPassword('AstS@2026')
+    setPassword('CktAdik2026!')
   }
 
   return (
@@ -55,26 +53,26 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
         <div className="hidden lg:flex flex-col gap-6 p-8 glass-strong rounded-2xl">
           <div className="flex items-center gap-3">
             <div className="h-14 w-14 rounded-xl bg-primary/90 text-primary-foreground flex items-center justify-center shadow-lg">
-              <GraduationCap className="h-8 w-8" />
+              <Flame className="h-8 w-8" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold gradient-text">ASTS</h1>
-              <p className="text-sm text-muted-foreground">ADTEC Smart Timetable System</p>
+              <h1 className="text-2xl font-bold gradient-text">CAOMS</h1>
+              <p className="text-sm text-muted-foreground">CKT Adik Order Management</p>
             </div>
           </div>
           <div className="space-y-3">
             <h2 className="text-2xl font-semibold leading-tight">
-              Sistem Penyusunan Jadual Kelas & Pensyarah
+              Sistem Rekod & Pengurusan Pesanan
             </h2>
             <p className="text-muted-foreground">
-              ADTEC Jitra, Kedah · Jabatan Tenaga Manusia (JTM). Penjanaan jadual automatik
-              bebas pertindihan untuk 7 kursus, 4 kumpulan semester, dan 35+ pensyarah.
+              CKT Adik — Char Kue Teow & menu lain. Memastikan <strong>tiada seorang pun pelanggan tercicir</strong> dengan
+              penjejakan status pesanan real-time dan amaran automatik.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { icon: ShieldCheck, title: 'Pengesanan Pertindihan', desc: 'Zero-clash scheduling' },
-              { icon: Lock, title: 'RBAC & Keselamatan', desc: '5 peranan pengguna' },
+              { icon: UtensilsCrossed, title: 'Papan Status', desc: 'FIFO queue board' },
+              { icon: ShieldCheck, title: 'Amaran Auto', desc: 'Anti-tercicir 20 min' },
             ].map((f) => (
               <div key={f.title} className="glass rounded-lg p-3">
                 <f.icon className="h-5 w-5 text-primary mb-1" />
@@ -90,15 +88,15 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
           <CardHeader className="space-y-2">
             <div className="flex items-center gap-2 lg:hidden">
               <div className="h-10 w-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-                <GraduationCap className="h-6 w-6" />
+                <Flame className="h-6 w-6" />
               </div>
               <div>
-                <CardTitle className="text-xl gradient-text">ASTS</CardTitle>
-                <CardDescription>ADTEC Jitra</CardDescription>
+                <CardTitle className="text-xl gradient-text">CAOMS</CardTitle>
+                <CardDescription>CKT Adik</CardDescription>
               </div>
             </div>
             <CardTitle className="hidden lg:block">Log Masuk</CardTitle>
-            <CardDescription>Masukkan kredensial anda untuk mengakses sistem.</CardDescription>
+            <CardDescription>Masukkan kredensial untuk akses sistem pesanan.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -106,38 +104,15 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
                 <Label htmlFor="email">Emel</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nama@adtecjitra.gov.my"
-                    className="pl-9"
-                    required
-                    autoComplete="email"
-                  />
+                  <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nama@cktadik.my" className="pl-9" required autoComplete="email" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Kata Laluan</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type={showPwd ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="pl-9 pr-9"
-                    required
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPwd((s) => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    aria-label={showPwd ? 'Sembunyi kata laluan' : 'Tunjuk kata laluan'}
-                  >
+                  <Input id="password" type={showPwd ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="pl-9 pr-9" required autoComplete="current-password" />
+                  <button type="button" onClick={() => setShowPwd((s) => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                     {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
@@ -150,16 +125,11 @@ export function LoginScreen({ onSuccess }: LoginScreenProps) {
 
             <div className="mt-5 pt-4 border-t border-border/50">
               <p className="text-xs font-medium text-muted-foreground mb-2">
-                Akaun demo (kata laluan: <span className="font-mono">AstS@2026</span>) — klik untuk diisi:
+                Akaun demo (kata laluan: <span className="font-mono">CktAdik2026!</span>):
               </p>
-              <div className="grid gap-1.5 max-h-44 overflow-y-auto scrollbar-thin pr-1">
+              <div className="grid gap-1.5">
                 {DEMO_ACCOUNTS.map((a) => (
-                  <button
-                    key={a.email}
-                    type="button"
-                    onClick={() => fillDemo(a.email)}
-                    className="text-left text-xs glass rounded-md px-2.5 py-1.5 hover:bg-primary/10 transition-colors flex items-center justify-between gap-2"
-                  >
+                  <button key={a.email} type="button" onClick={() => fillDemo(a.email)} className="text-left text-xs glass rounded-md px-2.5 py-1.5 hover:bg-primary/10 transition-colors flex items-center justify-between gap-2">
                     <span className="font-mono truncate">{a.email}</span>
                     <span className="text-primary font-medium whitespace-nowrap">{a.role}</span>
                   </button>
